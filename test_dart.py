@@ -107,8 +107,8 @@ def send_email(items):
         return
     body = "\n".join(item["title"] for item in items)
     msg = MIMEText(body)
-    msg["Subject"] = f"[바이오 공시/뉴스 알림] 신규 {len(items)}건"
-    msg["From"] = GMAIL_ADDRESS
+    msg["Subject"] = f"[B.A.B] 신규 {len(items)}건"
+    msg["From"] = f"B.A.B <{GMAIL_ADDRESS}>"
     msg["To"] = GMAIL_ADDRESS
     try:
         smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
@@ -117,7 +117,7 @@ def send_email(items):
         smtp.sendmail(GMAIL_ADDRESS, GMAIL_ADDRESS, msg.as_string())
         smtp.quit()
         print("이메일 발송 완료")
-    except smtplib.SMTPException as e:
+    except Exception as e:
         print(f"이메일 발송 실패: {e}")
 
 
