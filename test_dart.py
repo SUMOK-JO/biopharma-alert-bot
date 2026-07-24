@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import html
 import requests
 import feedparser
 from dotenv import load_dotenv
@@ -11,12 +13,22 @@ load_dotenv()
 DART_API_KEY = os.getenv("DART_API_KEY")
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 SEEN_FILE = "seen_reports.json"
 
-DART_KEYWORDS = ["기술수출", "라이선스아웃", "기술이전", "오픈이노베이션", "희귀질환치료제 지정"]
-FDA_KEYWORDS = ["orphan drug", "rare disease", "breakthrough therapy", "accelerated approval"]
+DART_KEYWORDS = [
+    "기술수출", "라이선스아웃", "기술이전", "오픈이노베이션", "희귀질환치료제 지정",
+    "라이선스인", "기술도입", "공동연구개발", "실시권", "옵션계약",
+]
+FDA_KEYWORDS = [
+    "orphan drug", "rare disease", "breakthrough therapy", "accelerated approval",
+    "priority review", "fast track designation", "biologics license", "gene therapy", "cell therapy",
+]
 FDA_RSS_URL = "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml"
+CLINICALTRIALS_URL = "https://clinicaltrials.gov/api/v2/studies"
+NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 
 
 def load_seen():
@@ -60,7 +72,6 @@ def fetch_dart_disclosures():
             break
 
         all_items.extend(data.get("list", []))
-
         total_page = data.get("total_page", 1)
         if page_no >= total_page:
             break
@@ -76,6 +87,37 @@ def fetch_fda_news():
     except Exception as e:
         print(f"FDA RSS 요청 실패: {e}")
         return []
+
+
+def fetch_clinicaltrials():
+    params = {"query.cond": "rare disease", "pageSize": 50, "format": "json"}
+    try:
+        res = requests.get(CLINICALTRIALS_URL, params=params, timeout=10)
+        res.raise_for_status()
+        return res.json().get("studies", [])
+    except requests.exceptions.RequestException as e:
+        print(f"ClinicalTrials.gov 요청 실패: {e}")
+        return []
+
+
+def fetch_naver_news():
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        print("네이버 API 키 없음 — 뉴스 소스 건너뜀")
+        return []
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+    }
+    all_items = []
+    for kw in DART_KEYWORDS:
+        params = {"query": kw, "display": 20, "sort": "date"}
+        try:
+            res = requests.get(NAVER_NEWS_URL, headers=headers, params=params, timeout=10)
+            res.raise_for_status()
+            all_items.extend(res.json().get("items", []))
+        except requests.exceptions.RequestException as e:
+            print(f"네이버 뉴스 API 요청 실패({kw}): {e}")
+    return all_items
 
 
 def filter_dart(disclosures):
@@ -94,11 +136,37 @@ def filter_fda(entries):
     for entry in entries:
         title = entry.get("title", "")
         if any(kw.lower() in title.lower() for kw in FDA_KEYWORDS):
-            matched.append({
-                "id": f"FDA:{entry.get('link')}",
-                "title": f"[FDA] {title}",
-            })
+            matched.append({"id": f"FDA:{entry.get('link')}", "title": f"[FDA] {title}"})
     return matched
+
+
+def filter_clinicaltrials(studies):
+    matched = []
+    for s in studies:
+        try:
+            ident = s["protocolSection"]["identificationModule"]
+        except KeyError:
+            continue
+        nct_id = ident.get("nctId")
+        title = ident.get("briefTitle", "")
+        matched.append({"id": f"CT:{nct_id}", "title": f"[ClinicalTrials] {title} ({nct_id})"})
+    return matched
+
+
+def filter_naver(items):
+    matched = []
+    for item in items:
+        title = html.unescape(re.sub("<.*?>", "", item.get("title", "")))
+        link = item.get("link") or item.get("originallink")
+        matched.append({"id": f"NAVER:{link}", "title": f"[뉴스] {title}"})
+    return matched
+
+
+def dedupe(items):
+    unique = {}
+    for item in items:
+        unique[item["id"]] = item
+    return list(unique.values())
 
 
 def send_email(items):
@@ -126,10 +194,16 @@ def main():
 
     dart_matched = filter_dart(fetch_dart_disclosures())
     fda_matched = filter_fda(fetch_fda_news())
-    all_matched = dart_matched + fda_matched
+    ct_matched = filter_clinicaltrials(fetch_clinicaltrials())
+    naver_matched = filter_naver(fetch_naver_news())
+
+    all_matched = dedupe(dart_matched + fda_matched + ct_matched + naver_matched)
     new_items = [item for item in all_matched if item["id"] not in seen_ids]
 
-    print(f"DART 매칭 {len(dart_matched)}건, FDA 매칭 {len(fda_matched)}건, 신규 {len(new_items)}건")
+    print(
+        f"DART {len(dart_matched)}건, FDA {len(fda_matched)}건, "
+        f"ClinicalTrials {len(ct_matched)}건, 뉴스 {len(naver_matched)}건 / 신규 {len(new_items)}건"
+    )
     send_email(new_items)
 
     for item in new_items:
