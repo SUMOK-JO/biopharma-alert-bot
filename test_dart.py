@@ -26,6 +26,8 @@ FDA_KEYWORDS = [
     "orphan drug", "rare disease", "breakthrough therapy", "accelerated approval",
     "priority review", "fast track designation", "biologics license", "gene therapy", "cell therapy",
 ]
+PHARMA_CONTEXT_WORDS = ["제약", "바이오", "신약", "임상", "식약처", "치료제", "백신", "항체", "세포치료", "유전자치료"]
+
 FDA_RSS_URL = "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml"
 CLINICALTRIALS_URL = "https://clinicaltrials.gov/api/v2/studies"
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
@@ -157,8 +159,15 @@ def filter_naver(items):
     matched = []
     for item in items:
         title = html.unescape(re.sub("<.*?>", "", item.get("title", "")))
+        desc = html.unescape(re.sub("<.*?>", "", item.get("description", "")))
+        combined = title + " " + desc
+        if not any(w in combined for w in PHARMA_CONTEXT_WORDS):
+            continue
         link = item.get("link") or item.get("originallink")
-        matched.append({"id": f"NAVER:{link}", "title": f"[뉴스] {title}"})
+        matched.append({
+            "id": f"NAVER:{link}",
+            "title": f"[뉴스] {title}\n   {desc}\n   {link}",
+        })
     return matched
 
 
@@ -173,7 +182,7 @@ def send_email(items):
     if not items:
         print("신규 매칭 없음 — 이메일 발송 생략")
         return
-    body = "\n".join(item["title"] for item in items)
+    body = "\n\n".join(item["title"] for item in items)
     msg = MIMEText(body)
     msg["Subject"] = f"[B.A.B] 신규 {len(items)}건"
     msg["From"] = f"B.A.B <{GMAIL_ADDRESS}>"
