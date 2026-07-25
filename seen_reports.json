@@ -227,6 +227,7 @@
   "NAVER:https://n.news.naver.com/mnews/article/422/0000888569?sid=101",
   "NAVER:https://n.news.naver.com/mnews/article/648/0000049092?sid=105",
   "NAVER:https://n.news.naver.com/mnews/article/648/0000049182?sid=101",
+  "NAVER:https://n.news.naver.com/mnews/article/657/0000053690?sid=102",
   "NAVER:https://news.dealsitetv.com/articles/173702",
   "NAVER:https://news.dealsitetv.com/articles/173766",
   "NAVER:https://news.mtn.co.kr/news-detail/2026072411122875133",
@@ -251,6 +252,7 @@
   "NAVER:https://www.businessplus.kr/news/articleView.html?idxno=114599",
   "NAVER:https://www.businesspost.co.kr/BP?command=article_view&num=441751",
   "NAVER:https://www.cbci.co.kr/news/articleView.html?idxno=591593",
+  "NAVER:https://www.cctoday.co.kr/news/articleView.html?idxno=2233768",
   "NAVER:https://www.cstimes.com/news/articleView.html?idxno=714350",
   "NAVER:https://www.cwn.kr/news/articleView.html?idxno=51227",
   "NAVER:https://www.dailymedi.com/news/news_view.php?wr_id=938435",
@@ -330,6 +332,7 @@
   "NAVER:https://www.medicopharma.co.kr/news/articleView.html?idxno=68853",
   "NAVER:https://www.medigatenews.com/news/1292353733",
   "NAVER:https://www.medigatenews.com/news/485548209",
+  "NAVER:https://www.medigatenews.com/news/594714165",
   "NAVER:https://www.medipana.com/news/articleView.html?idxno=414928",
   "NAVER:https://www.medipana.com/news/articleView.html?idxno=414936",
   "NAVER:https://www.medipana.com/news/articleView.html?idxno=414983",
@@ -373,7 +376,10 @@
   "NAVER:https://www.thelec.kr/news/articleView.html?idxno=59964",
   "NAVER:https://www.thepublic.kr/news/articleView.html?idxno=312540",
   "NAVER:https://www.thisisgame.com/articles/428056",
+  "NAVER:https://www.tokenpost.kr/news/cryptocurrency/381190",
+  "NAVER:https://www.tokenpost.kr/news/cryptocurrency/381195",
   "NAVER:https://www.tokenpost.kr/news/economy/380830",
+  "NAVER:https://www.tokenpost.kr/news/market/381185",
   "NAVER:https://www.topdaily.kr/articles/111133",
   "NAVER:https://www.venturesquare.net/1100930/",
   "NAVER:https://www.viva100.com/article/20260724500239",
@@ -382,5 +388,6 @@
   "NAVER:https://www.widedaily.com/news/articleView.html?idxno=298178",
   "NAVER:https://www.womaneconomy.co.kr/news/articleView.html?idxno=256493",
   "NAVER:https://www.yakup.com/news/index.html?mode=view&cat=11&nid=330148",
-  "NAVER:https://www.yakup.com/news/index.html?mode=view&cat=16&nid=330190"
+  "NAVER:https://www.yakup.com/news/index.html?mode=view&cat=16&nid=330190",
+  "NAVER:https://www.youthdaily.co.kr/news/article.html?no=223764"
 ]
