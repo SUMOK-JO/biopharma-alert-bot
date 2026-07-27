@@ -6,7 +6,7 @@ import requests
 import feedparser
 import anthropic
 from dotenv import load_dotenv
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import smtplib
 from email.mime.text import MIMEText
 
@@ -266,7 +266,7 @@ def send_immediate_alert(items):
 def send_daily_digest(items):
     if not items:
         print("다이제스트 대상 없음 — 발송 생략")
-        return
+        return True
 
     summaries = summarize_items(items)
 
@@ -299,8 +299,10 @@ def send_daily_digest(items):
         smtp.sendmail(GMAIL_ADDRESS, GMAIL_ADDRESS, msg.as_string())
         smtp.quit()
         print("일일 다이제스트 발송 완료")
+        return True
     except Exception as e:
         print(f"일일 다이제스트 발송 실패: {e}")
+        return False
 
 
 def main():
@@ -330,9 +332,11 @@ def main():
         seen_ids.add(item["id"])
     save_seen(seen_ids)
 
-    if datetime.utcnow().hour == DIGEST_HOUR_UTC and pending:
-        send_daily_digest(pending)
-        save_pending([])
+    current_hour_utc = datetime.now(timezone.utc).hour
+    if current_hour_utc == DIGEST_HOUR_UTC and pending:
+        digest_sent = send_daily_digest(pending)
+        if digest_sent:
+            save_pending([])
 
 
 if __name__ == "__main__":
