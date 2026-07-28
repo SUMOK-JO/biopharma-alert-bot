@@ -36,6 +36,9 @@ HIGH_PRIORITY_KEYWORDS = [
     "orphan drug", "breakthrough therapy", "accelerated approval",
 ]
 
+INDEX_SYMBOLS = {"^KS11": "코스피", "^KQ11": "코스닥"}
+INDEX_ALERT_THRESHOLD_PCT = 1.5
+
 FDA_RSS_URL = "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml"
 CLINICALTRIALS_URL = "https://clinicaltrials.gov/api/v2/studies"
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
@@ -202,6 +205,39 @@ def is_high_priority(item):
     return any(kw in item["title"] for kw in HIGH_PRIORITY_KEYWORDS)
 
 
+def fetch_index_change(symbol):
+    """야후 파이낸스 비공식 엔드포인트로 지수의 현재가·전일 대비 변동률을 조회."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    try:
+        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        res.raise_for_status()
+        meta = res.json()["chart"]["result"][0]["meta"]
+        current = meta["regularMarketPrice"]
+        previous_close = meta["previousClose"]
+        change_pct = (current - previous_close) / previous_close * 100
+        return current, change_pct
+    except Exception as e:
+        print(f"지수 조회 실패({symbol}): {e}")
+        return None, None
+
+
+def check_index_alerts():
+    """코스피·코스닥이 전일 대비 임계치 이상 변동했으면 알림 항목 생성."""
+    alerts = []
+    today_str = date.today().isoformat()
+    for symbol, name_ko in INDEX_SYMBOLS.items():
+        current, change_pct = fetch_index_change(symbol)
+        if current is None:
+            continue
+        if abs(change_pct) >= INDEX_ALERT_THRESHOLD_PCT:
+            direction = "급등" if change_pct > 0 else "급락"
+            alerts.append({
+                "id": f"INDEX:{symbol}:{today_str}",
+                "title": f"[지수 {direction}] {name_ko} {current:,.2f} ({change_pct:+.2f}%)",
+            })
+    return alerts
+
+
 def summarize_items(items):
     if not items or not ANTHROPIC_API_KEY:
         return {}
@@ -322,13 +358,20 @@ def main():
     )
 
     high_priority_now = [item for item in new_items if is_high_priority(item)]
-    send_immediate_alert(high_priority_now)
+
+    index_alerts = [item for item in check_index_alerts() if item["id"] not in seen_ids]
+    if index_alerts:
+        print(f"지수 급등락 감지: {len(index_alerts)}건")
+
+    send_immediate_alert(high_priority_now + index_alerts)
 
     pending = load_pending()
     pending.extend(new_items)
     save_pending(pending)
 
     for item in new_items:
+        seen_ids.add(item["id"])
+    for item in index_alerts:
         seen_ids.add(item["id"])
     save_seen(seen_ids)
 
