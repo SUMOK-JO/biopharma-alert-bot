@@ -37,7 +37,7 @@ HIGH_PRIORITY_KEYWORDS = [
 ]
 
 INDEX_SYMBOLS = {"^KS11": "코스피", "^KQ11": "코스닥"}
-INDEX_ALERT_THRESHOLD_PCT = 1.5
+INDEX_ALERT_TIERS_PCT = [1.5, 3.0, 5.0, 7.0]
 
 FDA_RSS_URL = "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml"
 CLINICALTRIALS_URL = "https://clinicaltrials.gov/api/v2/studies"
@@ -221,19 +221,88 @@ def fetch_index_change(symbol):
         return None, None
 
 
-def check_index_alerts():
-    """코스피·코스닥이 전일 대비 임계치 이상 변동했으면 알림 항목 생성."""
+def fetch_index_context_articles(name_ko, direction):
+    """지수 급등락과 관련된 실제 뉴스 기사를 네이버에서 검색."""
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        return []
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+    }
+    params = {"query": f"{name_ko} {direction}", "display": 3, "sort": "date"}
+    try:
+        res = requests.get(NAVER_NEWS_URL, headers=headers, params=params, timeout=10)
+        res.raise_for_status()
+        items = res.json().get("items", [])
+    except requests.exceptions.RequestException as e:
+        print(f"지수 관련 기사 조회 실패({name_ko}): {e}")
+        return []
+
+    articles = []
+    for item in items:
+        title = html.unescape(re.sub("<.*?>", "", item.get("title", "")))
+        desc = html.unescape(re.sub("<.*?>", "", item.get("description", "")))
+        articles.append(f"{title} - {desc}")
+    return articles
+
+
+def explain_index_move(name_ko, direction, change_pct, articles):
+    """실제 검색된 기사에만 근거해 급등락 원인을 1~2문장으로 설명. 근거 없으면 지어내지 않음."""
+    if not articles or not ANTHROPIC_API_KEY:
+        return None
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    articles_text = "\n".join(f"- {a}" for a in articles)
+
+    prompt = f"""{name_ko}이(가) 오늘 {change_pct:+.2f}% {direction}했다. 아래는 관련 검색으로 찾은 뉴스 기사 목록이다.
+
+{articles_text}
+
+위 기사들에 근거해서, {direction} 원인을 한국어 1~2문장으로 설명해줘.
+반드시 위 기사에 나온 내용에만 근거하고, 기사에 없는 내용은 절대 추측하거나 지어내지 마.
+기사들이 명확한 원인을 제시하지 않으면, "명확한 원인 기사를 찾지 못했습니다"라고만 답해.
+다른 설명 없이 답변 문장만 출력해."""
+
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return message.content[0].text.strip()
+    except Exception as e:
+        print(f"지수 원인 설명 생성 실패: {e}")
+        return None
+
+
+def check_index_alerts(seen_ids):
+    """코스피·코스닥이 전일 대비 단계별 임계치를 새로 넘을 때마다 알림 항목 생성.
+
+    새로 알릴 단계가 있을 때만 기사 검색·원인 설명을 수행해 불필요한 API 호출을 피한다.
+    """
     alerts = []
     today_str = date.today().isoformat()
     for symbol, name_ko in INDEX_SYMBOLS.items():
         current, change_pct = fetch_index_change(symbol)
         if current is None:
             continue
-        if abs(change_pct) >= INDEX_ALERT_THRESHOLD_PCT:
-            direction = "급등" if change_pct > 0 else "급락"
+
+        crossed_tiers = [tier for tier in INDEX_ALERT_TIERS_PCT if abs(change_pct) >= tier]
+        new_tiers = [t for t in crossed_tiers if f"INDEX:{symbol}:{today_str}:{t}" not in seen_ids]
+        if not new_tiers:
+            continue
+
+        direction = "급등" if change_pct > 0 else "급락"
+        articles = fetch_index_context_articles(name_ko, direction)
+        explanation = explain_index_move(name_ko, direction, change_pct, articles)
+
+        for tier in new_tiers:
+            title = f"[지수 {direction} {tier}%+] {name_ko} {current:,.2f} ({change_pct:+.2f}%)"
+            if explanation:
+                title += f"\n   원인: {explanation}"
             alerts.append({
-                "id": f"INDEX:{symbol}:{today_str}",
-                "title": f"[지수 {direction}] {name_ko} {current:,.2f} ({change_pct:+.2f}%)",
+                "id": f"INDEX:{symbol}:{today_str}:{tier}",
+                "title": title,
             })
     return alerts
 
@@ -283,7 +352,13 @@ def format_item(item, index, summaries):
 def send_immediate_alert(items):
     if not items:
         return
-    body = "\n\n".join(item["title"] for item in items)
+    index_items = [item for item in items if item["id"].startswith("INDEX:")]
+    other_items = [item for item in items if not item["id"].startswith("INDEX:")]
+
+    summaries = summarize_items(other_items)
+    lines = [item["title"] for item in index_items]
+    lines += [format_item(item, i, summaries) for i, item in enumerate(other_items, start=1)]
+    body = "\n\n".join(lines)
     msg = MIMEText(body)
     msg["Subject"] = f"[B.A.B 긴급] 중요 항목 {len(items)}건"
     msg["From"] = f"B.A.B <{GMAIL_ADDRESS}>"
@@ -358,8 +433,7 @@ def main():
     )
 
     high_priority_now = [item for item in new_items if is_high_priority(item)]
-
-    index_alerts = [item for item in check_index_alerts() if item["id"] not in seen_ids]
+    index_alerts = check_index_alerts(seen_ids)
     if index_alerts:
         print(f"지수 급등락 감지: {len(index_alerts)}건")
 
